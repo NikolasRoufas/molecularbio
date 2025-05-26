@@ -1,0 +1,182 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{amsmath}
+\geometry{margin=1in}
+
+\title{MolecularBio: A Python Toolkit for Molecular Biology Data Processing}
+\author{Rafail Konstantinou inf2022248\\
+Dimitris Blougouras inf2022134\\
+Pangiotis Stoupis inf2022199 \\ }
+
+
+% Define Python code style for listings
+\definecolor{codegray}{gray}{0.95}
+\lstdefinestyle{python}{
+  backgroundcolor=\color{codegray},
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{red},
+  showstringspaces=false,
+  frame=single,
+  breaklines=true
+}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+\textbf{MolecularBio} is a Python-based command-line application designed to simplify the processing and analysis of molecular biology data. The toolkit allows users to parse structured input files, perform statistical analyses, and generate visualizations from biological datasets.
+
+The project is ideal for bioinformatics learners and researchers seeking a lightweight tool for analyzing DNA/RNA sequences and protein data in formats like FASTA and CSV.
+
+\section{Project Objectives}
+
+The primary objectives of MolecularBio are:
+\begin{itemize}
+  \item To simplify molecular biology data processing through an intuitive Python interface.
+  \item To provide statistical analysis functions such as sequence length distribution, nucleotide frequency, and motif search.
+  \item To create visualizations for better understanding of gene/protein data.
+  \item To be easily deployable through Docker and platform-independent.
+\end{itemize}
+
+\section{Installation}
+
+\subsection{Using pip}
+
+\begin{verbatim}
+$ git clone 
+$ cd molecularbio
+$ pip install -r requirements.txt
+$ python app.py
+\end{verbatim}
+
+\subsection{Using Docker}
+
+\begin{verbatim}
+$ docker build -t molecularbio .
+$ docker run -p 8000:8000 molecularbio
+\end{verbatim}
+
+\section{Directory Structure}
+
+\begin{verbatim}
+molecularbio/
+├── data/                 # Sample FASTA/CSV files
+├── app.py                # CLI interface
+├── requirements.txt      # Python dependencies
+├── Dockerfile            # Docker configuration
+└── README.md
+\end{verbatim}
+
+\section{Code Breakdown}
+
+\subsection{app.py}
+Responsible for parsing FASTA and CSV files.
+
+\begin{lstlisting}[style=python, caption={Sample FASTA Parsing Code}]
+def parse_fasta(file_path):
+    with open(file_path, 'r') as file:
+        sequences = {}
+        sequence = ''
+        header = ''
+        for line in file:
+            if line.startswith('>'):
+                if header:
+                    sequences[header] = sequence
+                header = line.strip()[1:]
+                sequence = ''
+            else:
+                sequence += line.strip()
+        sequences[header] = sequence
+    return sequences
+\end{lstlisting}
+
+\subsection{app.py}
+Provides core statistical functionality.
+
+\begin{lstlisting}[style=python, caption={Basic Nucleotide Frequency}]
+from collections import Counter
+
+def nucleotide_frequency(sequence):
+    return Counter(sequence.upper())
+\end{lstlisting}
+
+\subsection{app.py}
+Uses matplotlib to visualize distributions.
+
+\begin{lstlisting}[style=python, caption={Plotting Sequence Lengths}]
+import matplotlib.pyplot as plt
+
+def plot_sequence_lengths(sequences):
+    lengths = [len(seq) for seq in sequences.values()]
+    plt.hist(lengths, bins=20, color='skyblue', edgecolor='black')
+    plt.title("Sequence Length Distribution")
+    plt.xlabel("Length")
+    plt.ylabel("Frequency")
+    plt.show()
+\end{lstlisting}
+
+\subsection{app.py}
+Main application that connects all components and parses CLI arguments.
+
+\begin{lstlisting}[style=python, caption={Main Entry Point}]
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="MolecularBio CLI")
+    parser.add_argument("--input", type=str, required=True)
+    parser.add_argument("--analyze", action="store_true")
+    parser.add_argument("--visualize", action="store_true")
+    args = parser.parse_args()
+
+    data = parser.parse_fasta(args.input)
+
+    if args.analyze:
+        for header, seq in data.items():
+            print(header, analysis.nucleotide_frequency(seq))
+
+    if args.visualize:
+        visualize.plot_sequence_lengths(data)
+\end{lstlisting}
+
+\section{Dockerization}
+
+To containerize the app:
+
+\textbf{Dockerfile} example:
+\begin{lstlisting}[style=python, caption={Dockerfile}]
+FROM python:3.10
+WORKDIR /app
+COPY . .
+RUN pip install -r requirements.txt
+CMD ["python", "app.py", "--input", "data/sample.fasta", "--visualize"]
+\end{lstlisting}
+
+\section{Future Improvements}
+
+\begin{itemize}
+  \item Integration with BioPython for more advanced sequence manipulation.
+  \item Web-based interface using Flask or FastAPI.
+  \item Support for multiple sequence alignments.
+  \item More statistical models and pattern discovery tools.
+\end{itemize}
+
+\section{Conclusion}
+
+MolecularBio serves as a lightweight and modular tool for basic molecular biology data analysis. It is intended as an educational and practical tool for those new to bioinformatics and Python scripting in the life sciences.
+
+For source code, updates, and collaboration, visit the GitHub repository at:
+
+
+\end{document}
