@@ -10,7 +10,7 @@
 **Advanced Molecular Biology Data Analysis Platform**
 
 *Empowering molecular biology research through advanced data analytics*
-*created for Ionian University*
+**created for Ionian University**
 
 </div>
 
