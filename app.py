@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -204,6 +203,36 @@ def load_custom_css():
     """, unsafe_allow_html=True)
 
 # ===== DATA PROCESSING CLASSES =====
+
+def clean_molecular_data(df):
+    """
+    Clean molecular biology data by converting mixed types to numeric
+    """
+    # Create a copy to avoid modifying original
+    cleaned_df = df.copy()
+    
+    # Handle common molecular biology data issues
+    replacements = {
+        'N/A': np.nan, 'NA': np.nan, 'NULL': np.nan, 'null': np.nan,
+        '': np.nan, ' ': np.nan, 'NaN': np.nan, 'inf': np.nan,
+        'Inf': np.nan, '-inf': np.nan, '-Inf': np.nan, 'None': np.nan
+    }
+    
+    # Apply replacements
+    cleaned_df = cleaned_df.replace(replacements)
+    
+    # Convert all columns to numeric where possible
+    for col in cleaned_df.columns:
+        cleaned_df[col] = pd.to_numeric(cleaned_df[col], errors='coerce')
+    
+    # Remove columns that are entirely NaN
+    cleaned_df = cleaned_df.dropna(axis=1, how='all')
+    
+    # Remove rows that are entirely NaN
+    cleaned_df = cleaned_df.dropna(axis=0, how='all')
+    
+    return cleaned_df
+
 class DataProcessor:
     """Enhanced data processing with comprehensive molecular biology features."""
     
@@ -315,11 +344,19 @@ class DataProcessor:
         # Filter low expression
         if kwargs.get('filter_low_expr', True):
             min_expr = kwargs.get('min_expression', 1.0)
-            gene_means = processed_data.mean(axis=1)
-            high_expr_genes = gene_means >= min_expr
-            processed_data = processed_data[high_expr_genes]
-            steps.append(f"Filtered {(~high_expr_genes).sum()} low-expression genes (< {min_expr})")
-        
+            try:
+                # Ensure we only calculate mean for numeric data
+                numeric_data = processed_data.select_dtypes(include=[np.number])
+                if not numeric_data.empty:
+                    gene_means = numeric_data.mean(axis=1, numeric_only=True)
+                    high_expr_genes = gene_means >= min_expr
+                    processed_data = processed_data.loc[high_expr_genes]
+                    steps.append(f"Filtered {(~high_expr_genes).sum()} low-expression genes (< {min_expr})")
+                else:
+                    steps.append("Warning: No numeric data found for low-expression filtering")
+            except Exception as e:
+                steps.append(f"Warning: Could not filter low-expression genes: {str(e)}")
+
         # Log transformation
         if kwargs.get('log_transform', True):
             transform_type = kwargs.get('log_type', 'log2')
@@ -424,24 +461,76 @@ class AdvancedAnalysis:
     """Advanced statistical and ML analysis."""
     
     @staticmethod
-    def perform_pca(data, n_components=None, scale=True):
-        """Enhanced PCA with comprehensive results."""
-        if n_components is None:
-            n_components = min(10, data.shape[1] - 1)
-        
-        # Prepare data
-        X = data.T  # Samples as rows
-        
-        if scale:
+    def perform_pca(data, n_components=10, metadata=None):
+        """
+        Perform PCA analysis with automatic component adjustment for small datasets
+        """
+        try:
+            # Prepare data
+            X = data.T  # Transpose so samples are rows
+            
+            # Handle missing values
+            if X.isnull().any().any():
+                X = X.fillna(X.mean())
+            
+            # Scale the data
             scaler = StandardScaler()
             X_scaled = scaler.fit_transform(X)
-        else:
-            X_scaled = X
-        
-        # Perform PCA
-        pca = PCA(n_components=n_components)
-        pca_coords = pca.fit_transform(X_scaled)
-        
+            
+            # Calculate maximum possible components
+            n_samples, n_features = X_scaled.shape
+            max_components = min(n_samples, n_features)
+            
+            # Adjust n_components if it's too large
+            if n_components > max_components:
+                n_components = max_components
+                print(f"Warning: Adjusted PCA components to {n_components} (max possible for this dataset)")
+            
+            # Ensure we have at least 2 components for meaningful analysis
+            if max_components < 2:
+                return {
+                    'error': f"Dataset too small for PCA analysis. Need at least 2 samples and 2 features. Current: {n_samples} samples, {n_features} features",
+                    'coordinates': None,
+                    'explained_variance_ratio': None,
+                    'loadings': None
+                }
+            
+            # Perform PCA with adjusted components
+            pca = PCA(n_components=n_components)
+            pca_coords = pca.fit_transform(X_scaled)
+            
+            # Calculate loadings
+            loadings = pca.components_.T * np.sqrt(pca.explained_variance_)
+            
+            # Feature contributions
+            feature_importance = pd.DataFrame(
+                np.abs(loadings),
+                index=data.index,
+                columns=[f'PC{i+1}' for i in range(n_components)]
+            )
+            
+            results = {
+                'coordinates': pca_coords,
+                'explained_variance_ratio': pca.explained_variance_ratio_,
+                'explained_variance': pca.explained_variance_,
+                'loadings': loadings,
+                'feature_importance': feature_importance,
+                'cumulative_variance': np.cumsum(pca.explained_variance_ratio_),
+                'sample_names': data.columns.tolist(),
+                'feature_names': data.index.tolist()
+            }
+            
+            return results
+            
+        except Exception as e:
+            return {
+                'error': f"PCA analysis failed: {str(e)}",
+                'coordinates': None,
+                'explained_variance_ratio': None,
+                'loadings': None
+            }
+
+
         # Calculate loadings
         loadings = pca.components_.T * np.sqrt(pca.explained_variance_)
         
@@ -847,6 +936,9 @@ def main():
                 elif uploaded_file.name.endswith('.tsv'):
                     raw_data = pd.read_csv(uploaded_file, sep='\t', index_col=0)
                 
+                # CLEAN THE DATA IMMEDIATELY AFTER LOADING
+                raw_data = clean_molecular_data(raw_data)
+                
                 st.session_state.raw_data = raw_data
                 st.session_state.data_loaded = True
                 
@@ -904,19 +996,36 @@ def main():
             with col3:
                 st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-value">{raw_data.isnull().sum().sum()}</div>
-                    <div class="metric-label">Missing Values</div>
+                <div class="metric-value">{raw_data.isnull().sum().sum()}</div>
+                <div class="metric-label">Missing Values</div>
                 </div>
                 """, unsafe_allow_html=True)
             
             with col4:
+                # Calculate mean only for numeric columns
+                try:
+                    numeric_data = raw_data.select_dtypes(include=[np.number])
+                    if not numeric_data.empty:
+                        mean_value = numeric_data.values.mean()
+                    else:
+                        # If no numeric columns, try to convert and calculate
+                        numeric_converted = pd.to_numeric(raw_data.values.flatten(), errors='coerce')
+                        mean_value = np.nanmean(numeric_converted[~np.isnan(numeric_converted)])
+                    
+                    # Handle case where mean_value might be NaN
+                    if np.isnan(mean_value):
+                        mean_display = "N/A"
+                    else:
+                        mean_display = f"{mean_value:.2f}"
+                except:
+                    mean_display = "N/A"
+                
                 st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-value">{raw_data.values.mean():.2f}</div>
-                    <div class="metric-label">Mean Expression</div>
+                <div class="metric-value">{mean_display}</div>
+                <div class="metric-label">Mean Expression</div>
                 </div>
                 """, unsafe_allow_html=True)
-            
             # Process data button
             if st.button("🚀 Process Data", type="primary", use_container_width=True):
                 with st.spinner("Processing data according to your specifications..."):
@@ -933,18 +1042,16 @@ def main():
                         'scale_data': scale_data,
                         'scale_method': scale_method
                     }
-                    
                     processed_data, processing_steps = DataProcessor.preprocess_data(
                         raw_data, **processing_params
                     )
-                    
                     # Store processed data
                     st.session_state.processed_data = processed_data
                     st.session_state.processing_steps = processing_steps
                     
                     # Generate QC metrics
                     qc_metrics = QualityControl.generate_qc_metrics(
-                        processed_data, 
+                        processed_data,
                         st.session_state.get('metadata', None)
                     )
                     st.session_state.qc_metrics = qc_metrics
@@ -952,8 +1059,9 @@ def main():
                     # Perform PCA
                     pca_results = AdvancedAnalysis.perform_pca(
                         processed_data, 
-                        n_components=n_pca_components,
-                        scale=scale_for_pca
+                        n_components=n_pca_components
+                        # metadata parameter is optional, you can add it if needed:
+                        # metadata=st.session_state.get('metadata', None)
                     )
                     st.session_state.pca_results = pca_results
                     
